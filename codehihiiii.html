@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <title>Trái tim & vòng chữ 3D</title>
+  <style>
+    body, html {
+      margin: 0;
+      padding: 0;
+      background: black;
+      overflow: hidden;
+      height: 100%;
+      width: 100%;
+    }
+    #pinkboard, #threejs {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+    }
+    #pinkboard { z-index: 1; }
+    #threejs   { z-index: 2; pointer-events: none; }
+  </style>
+</head>
+<body>
+  <canvas id="pinkboard"></canvas>
+  <canvas id="threejs"></canvas>
+
+  <!-- Three.js -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
+
+  <!-- ===== Tim particle ===== -->
+  <script>
+  var settings = {
+    particles: { length: 500, duration: 1, velocity: 50, effect: -1, size: 30 }
+  };
+
+  (function(canvas){
+    var context = canvas.getContext("2d"),
+        particles = new (function(){
+          var pool = [], firstActive=0, firstFree=0, duration=settings.particles.duration;
+          for(let i=0;i<settings.particles.length;i++) pool[i]={pos:{x:0,y:0},vel:{x:0,y:0},acc:{x:0,y:0},age:0};
+          return {
+            add(x,y,dx,dy){
+              let p=pool[firstFree];
+              p.pos.x=x;p.pos.y=y;
+              p.vel.x=dx;p.vel.y=dy;
+              p.acc.x=dx*settings.particles.effect;
+              p.acc.y=dy*settings.particles.effect;
+              p.age=0;
+              firstFree=(firstFree+1)%pool.length;
+              if(firstFree===firstActive) firstActive=(firstActive+1)%pool.length;
+            },
+            update(dt){
+              for(let i=0;i<pool.length;i++){
+                let p=pool[i]; if(p.age<duration){
+                  p.pos.x+=p.vel.x*dt; p.pos.y+=p.vel.y*dt;
+                  p.vel.x+=p.acc.x*dt; p.vel.y+=p.acc.y*dt;
+                  p.age+=dt;
+                }
+              }
+            },
+            draw(ctx,img){
+              for(let i=0;i<pool.length;i++){
+                let p=pool[i]; if(p.age<duration){
+                  let ease=(t)=>((--t)*t*t+1);
+                  let s=img.width*ease(p.age/duration);
+                  ctx.globalAlpha=1-p.age/duration;
+                  ctx.drawImage(img,p.pos.x-s/2,p.pos.y-s/2,s,s);
+                }
+              }
+            }
+          }
+        })(),
+        particleRate=settings.particles.length/settings.particles.duration, time;
+
+    function pointOnHeart(t){
+      return {x:160*Math.pow(Math.sin(t),3),
+              y:130*Math.cos(t)-50*Math.cos(2*t)-20*Math.cos(3*t)-10*Math.cos(4*t)+25};
+    }
+
+    var image=(function(){
+      var c=document.createElement("canvas"),ctx=c.getContext("2d");
+      c.width=c.height=settings.particles.size;
+      function to(t){
+        var p=pointOnHeart(t);
+        p.x=settings.particles.size/2+p.x*settings.particles.size/350;
+        p.y=settings.particles.size/2-p.y*settings.particles.size/350;
+        return p;
+      }
+      ctx.beginPath();
+      let p=to(-Math.PI); ctx.moveTo(p.x,p.y);
+for(let t=-Math.PI;t<Math.PI;t+=0.01){p=to(t);ctx.lineTo(p.x,p.y);}
+      ctx.closePath(); ctx.fillStyle="#ea80b0"; ctx.fill();
+      var img=new Image(); img.src=c.toDataURL(); return img;
+    })();
+
+    function render(){
+      requestAnimationFrame(render);
+      let newTime=Date.now()/1000, dt=newTime-(time||newTime); time=newTime;
+      context.clearRect(0,0,canvas.width,canvas.height);
+      let amount=particleRate*dt;
+      for(let i=0;i<amount;i++){
+        let pos=pointOnHeart(Math.PI-2*Math.PI*Math.random());
+        let len=Math.sqrt(pos.x*pos.x+pos.y*pos.y);
+        let dir={x:(pos.x/len)*settings.particles.velocity,
+                 y:(pos.y/len)*settings.particles.velocity};
+        // nâng tim lên cao một chút
+        particles.add(canvas.width/2+pos.x, canvas.height/2.5-pos.y, dir.x, -dir.y);
+      }
+      particles.update(dt); particles.draw(context,image);
+    }
+    function resize(){canvas.width=canvas.clientWidth; canvas.height=canvas.clientHeight;}
+    window.onresize=resize; setTimeout(function(){resize();render();},10);
+  })(document.getElementById("pinkboard"));
+  </script>
+
+  <!-- ===== Vòng chữ 3D ===== -->
+  <script type="module">
+    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js';
+
+    const canvas3d = document.getElementById("threejs");
+    const renderer = new THREE.WebGLRenderer({ canvas: canvas3d, alpha: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, 0.1, 1000);
+    camera.position.set(0, 4, 140);
+
+    // ====== Ring text group ======
+    const textGroup = new THREE.Group();
+    scene.add(textGroup);
+
+    // Wait for webfont (Noto Sans supports Unicode)
+    const fontFamily = 'Noto Sans';
+    const canvasFontPx = 96;
+    await document.fonts.load(`${canvasFontPx}px "${fontFamily}"`);
+    await document.fonts.ready;
+
+    // Character texture cache
+    const charCache = new Map();
+    function createCharTexture(char, options = {}) {
+      const key = char + '|' + options.fontSize;
+      if (charCache.has(key)) return charCache.get(key);
+
+      const fontSize = options.fontSize || canvasFontPx;
+      const fontFamilyLocal = options.fontFamily || fontFamily;
+      const padding = Math.round(fontSize * 0.3);
+
+      const measureCan = document.createElement('canvas');
+      const mCtx = measureCan.getContext('2d');
+      mCtx.font = `${fontSize}px "${fontFamilyLocal}"`;
+      const metrics = mCtx.measureText(char);
+      const w = Math.ceil(metrics.width) + padding*2;
+      const h = Math.ceil(fontSize * 1.2) + padding*2;
+
+      const canvas = document.createElement('canvas');
+      canvas.width=w; canvas.height=h;
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0,0,w,h);
+      ctx.font = `${fontSize}px "${fontFamilyLocal}"`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+      ctx.lineWidth = Math.max(1,fontSize*0.06);
+      ctx.strokeText(char,w/2,h/2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(char,w/2,h/2);
+
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.needsUpdate = true;
+      tex.encoding = THREE.sRGBEncoding;
+      tex.minFilter = THREE.LinearFilter;
+      tex.magFilter = THREE.LinearFilter;
+
+      const entry={texture:tex,width:canvas.width,height:canvas.height};
+      charCache.set(key, entry);
+      return entry;
+    }
+
+    function createCharMesh(char, options = {}) {
+      const entry = createCharTexture(char, options);
+      const material = new THREE.MeshBasicMaterial({
+        map: entry.texture, transparent: true, side: THREE.DoubleSide
+      });
+      const geo = new THREE.PlaneGeometry(1,1);
+      const mesh = new THREE.Mesh(geo, material);
+      const worldScale = options.worldScale || 0.035;
+      mesh.scale.set(entry.width*worldScale, entry.height*worldScale,1);
+      return mesh;
+    }
+
+    const TEXT = "Đỗ Đình Vũ";
+    const numRings = 6;
+    const radiusStart = 25;
+    const radiusStep = 3.6;
+    const heightStep = -2.2;
+
+    for (let r=0;r<numRings;r++){
+      const ringGroup = new THREE.Group();
+      const chars = (TEXT.repeat(3)).split(''); // lặp 2 lần
+      const angleStep = (2 * Math.PI) / chars.length;
+      const radius=radiusStart+r*radiusStep;
+      const yPos=-12+r*heightStep;
+    
+
+     chars.forEach((ch,i)=>{
+        const angle=-i*angleStep;
+        const mesh=createCharMesh(ch,{fontSize:96,fontFamily:fontFamily,worldScale:0.03});
+        mesh.position.x=radius*Math.cos(angle);
+        mesh.position.z=radius*Math.sin(angle);
+        mesh.position.y=yPos;
+        mesh.lookAt(new THREE.Vector3(0,yPos,0));
+        mesh.rotateY(Math.PI);
+        mesh.userData.angle=angle;
+        ringGroup.add(mesh);
+      });
+
+      
+      ringGroup.userData.direction=0.5;// tất cả cùng chiều
+      textGroup.add(ringGroup);
+    }
+
+    // Animate
+    let t=0;
+    function animate(){
+      requestAnimationFrame(animate);
+      t+=0.02;
+
+      textGroup.children.forEach((ring,idx)=>{
+        ring.rotation.y+=0.008*ring.userData.direction;
+        ring.children.forEach(mesh=>{
+          const phase=mesh.userData.angle+t*0.6*ring.userData.direction;
+          mesh.position.y+=Math.sin(phase+idx*0.3)*0.002;
+        });
+      });
+
+      renderer.render(scene,camera);
+    }
+    animate();
+
+    window.addEventListener('resize',()=>{
+      camera.aspect=innerWidth/innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(innerWidth,innerHeight);
+    });
+  </script>
+</body>
+</html>
